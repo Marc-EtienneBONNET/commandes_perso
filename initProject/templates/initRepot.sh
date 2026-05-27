@@ -9,10 +9,16 @@
 #   - confirme le profil gh actif (option de basculer via login web)
 #   - nom du repo GitHub = nom du dossier courant
 #   - owner = compte gh actuellement authentifié (après confirmation)
+#   - résout l'alias SSH (~/.ssh/config) correspondant au profil gh actif —
+#     indispensable pour les setups multi-comptes (clé pro vs clé perso) où
+#     `gh repo create` ajoute toujours un remote `git@github.com:…` qui pointe
+#     vers la clé par défaut, donc échoue à pusher sur un compte secondaire
 #   - git init -b main si le dossier n'est pas encore un repo git
 #   - git add -A  (exclut ce script du commit initial via `git rm --cached`)
 #   - git commit -m "init"  (skip s'il n'y a rien à committer)
-#   - gh repo create OWNER/NAME --private --source=. --remote=origin --push
+#   - gh repo create OWNER/NAME --private (sans push)
+#   - git remote add origin git@<alias_ssh>:OWNER/NAME.git
+#   - git push -u origin main
 #   - si tout s'est bien passé : suppression de ce script (mission accomplie)
 #
 # Usage : ./initRepot.sh         (depuis la racine du projet)
@@ -90,7 +96,59 @@ if ! confirm "Conserver ce profil ?" y; then
 fi
 
 # -----------------------------------------------------------------------------
-# 3. Contexte : nom du dossier + repo cible
+# 3. Résolution du host SSH correspondant au profil gh actif
+#
+#    Setup typique : plusieurs comptes GitHub avec des clés SSH distinctes
+#    déclarés via des alias dans ~/.ssh/config :
+#      Host github.com         → compte par défaut (clé X)
+#      Host github.com-perso   → compte perso (clé Y)
+#
+#    Par défaut `gh repo create … --push` ajoute `git@github.com:OWNER/NAME`
+#    sans tenir compte de quelle clé peut accéder à OWNER. Si OWNER n'est PAS
+#    le compte associé à la clé par défaut, le push échoue avec
+#    « Repository not found ».
+#
+#    On résout en interrogeant chaque Host github.com* du ssh config via
+#    `ssh -T` : GitHub répond « Hi USERNAME! » et on garde l'alias dont le
+#    USERNAME matche le profil gh actif. Fallback : `github.com` brut.
+# -----------------------------------------------------------------------------
+resolve_ssh_host() {
+  local target_user="$1"
+  local ssh_config="$HOME/.ssh/config"
+
+  if [ ! -f "$ssh_config" ]; then
+    printf 'github.com'
+    return
+  fi
+
+  # Tous les Host candidats : `github.com` et alias `github.com-*`.
+  local hosts
+  hosts=$(awk '/^[[:space:]]*Host[[:space:]]+/ {
+    for (i=2; i<=NF; i++) if ($i ~ /^github\.com(-|$)/) print $i
+  }' "$ssh_config" | awk '!seen[$0]++')
+
+  local host out user
+  while IFS= read -r host; do
+    [ -z "$host" ] && continue
+    out=$(ssh -T -o BatchMode=yes -o ConnectTimeout=5 \
+              -o StrictHostKeyChecking=accept-new \
+              "git@${host}" 2>&1 || true)
+    user=$(printf '%s' "$out" | sed -n 's/^Hi \([^!]*\)!.*/\1/p')
+    if [ "$user" = "$target_user" ]; then
+      printf '%s' "$host"
+      return
+    fi
+  done <<< "$hosts"
+
+  printf 'github.com'
+}
+
+info "Résolution de l'alias SSH pour ${GH_USER}..."
+SSH_HOST=$(resolve_ssh_host "$GH_USER")
+info "Alias SSH retenu : ${SSH_HOST}"
+
+# -----------------------------------------------------------------------------
+# 4. Contexte : nom du dossier + repo cible
 # -----------------------------------------------------------------------------
 FOLDER_NAME="$(basename "$PWD")"
 FULL_REPO="${GH_USER}/${FOLDER_NAME}"
@@ -105,7 +163,7 @@ if gh repo view "$FULL_REPO" >/dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------------
-# 4. git init si nécessaire
+# 5. git init si nécessaire
 # -----------------------------------------------------------------------------
 if [ ! -d .git ]; then
   info "git init -b main"
@@ -115,7 +173,7 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 5. Garantit user.name / user.email (sinon git commit explose)
+# 6. Garantit user.name / user.email (sinon git commit explose)
 # -----------------------------------------------------------------------------
 if ! git config user.name >/dev/null 2>&1; then
   n=$(git config --global user.name 2>/dev/null || echo "$GH_USER")
@@ -127,7 +185,7 @@ if ! git config user.email >/dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------------
-# 6. add + commit "init" — on EXCLUT ce script du commit initial.
+# 7. add + commit "init" — on EXCLUT ce script du commit initial.
 #    `git rm --cached` retire le fichier de l'index (sans toucher au disque) ;
 #    le `|| true` couvre le cas où le fichier n'a pas été staged (rare, mais
 #    set -e nous mordrait).
@@ -143,15 +201,29 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 7. Création du repo privé + remote + push (en une commande)
+# 8. Création du repo privé, puis remote SSH avec l'alias résolu, puis push.
+#    On évite `gh repo create --source --remote --push` parce qu'il forcerait
+#    `git@github.com:…` (alias par défaut), incompatible avec un compte
+#    secondaire dont la clé SSH se trouve derrière un autre Host.
 # -----------------------------------------------------------------------------
-info "Création du repo privé ${FULL_REPO} + ajout du remote 'origin' + push"
-gh repo create "$FULL_REPO" --private --source=. --remote=origin --push
+info "Création du repo privé ${FULL_REPO}"
+gh repo create "$FULL_REPO" --private
+
+REMOTE_URL="git@${SSH_HOST}:${FULL_REPO}.git"
+if git remote get-url origin >/dev/null 2>&1; then
+  git remote set-url origin "$REMOTE_URL"
+else
+  git remote add origin "$REMOTE_URL"
+fi
+info "Remote 'origin' → ${REMOTE_URL}"
+
+info "Push initial sur main"
+git push -u origin main
 
 # -----------------------------------------------------------------------------
-# 8. Succès → autodestruction du script (mission accomplie).
+# 9. Succès → autodestruction du script (mission accomplie).
 #    À ce point, `set -e` garantit qu'on n'est ici que si tout ce qui précède
-#    a réussi. Le script n'est pas dans l'index (cf. étape 6), il n'y a donc
+#    a réussi. Le script n'est pas dans l'index (cf. étape 7), il n'y a donc
 #    rien à `git rm` — un simple `rm` suffit.
 # -----------------------------------------------------------------------------
 rm -- "$SELF_PATH"
