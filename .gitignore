@@ -1,0 +1,6 @@
+# Worktrees crees par le harness Claude Code (parallele jobs / subagents)
+.claude/worktrees/
+
+# macOS Finder
+.DS_Store
+**/.DS_Store
