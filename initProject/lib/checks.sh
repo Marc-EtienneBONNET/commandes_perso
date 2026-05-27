@@ -7,9 +7,8 @@
 #   Quitte le script avec un message d'erreur clair si l'un manque.
 #
 # Binaires requis :
-#   - git       : version control (utilisé pour init + commit)
-#   - gh        : GitHub CLI (auth, listing templates, création de repo)
-#   - osascript : macOS uniquement, pour le sélecteur de dossier Finder
+#   - git : version control (utilisé pour init + commit)
+#   - gh  : GitHub CLI (auth, listing templates, création de repo)
 # =============================================================================
 
 check_dependencies() {
@@ -20,11 +19,6 @@ check_dependencies() {
 
   command -v gh >/dev/null 2>&1 || {
     err "gh (GitHub CLI) introuvable. https://cli.github.com/"
-    exit 1
-  }
-
-  command -v osascript >/dev/null 2>&1 || {
-    err "osascript introuvable (script prévu pour macOS)."
     exit 1
   }
 }

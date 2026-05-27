@@ -91,7 +91,7 @@ Workflow d'initialisation d'un nouveau projet à partir de templates GitHub.
 4. Demande le nom du projet (`<suffixe>`), utilisé en préfixe des nouveaux repos et nom du dossier parent.
 5. Calcule les nouveaux noms : strip `model[_-]?` du template puis préfixe `<suffixe>_`.
    Exemple : `model_node_express` + suffixe `door` → `door_node_express`.
-6. Ouvre le Finder pour choisir où poser le projet, crée un dossier `<suffixe>/` à cet endroit.
+6. Crée un dossier `<suffixe>/` directement dans le dossier courant (là où la commande est lancée).
 7. Pour chaque template choisi : clone son contenu en local, strip `.git`, ajoute `.env*` au `.gitignore`, `git init -b main` + commit initial, pré-configure `origin` vers `USER/<nouveau_nom>` (le repo n'existe pas encore sur GitHub), installe un hook `pre-push`.
 8. **Aucun repo n'est créé sur GitHub à ce stade**. Le hook `pre-push` se charge de créer le repo GitHub privé au moment du premier `git push`, avec le nom dérivé de l'URL d'origin.
 

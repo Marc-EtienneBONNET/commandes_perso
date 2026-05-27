@@ -17,12 +17,12 @@
 #   initProject.sh          → ce fichier (orchestrateur)
 #   lib/colors.sh           → couleurs + helpers d'affichage (step/info/...)
 #   lib/prompts.sh          → confirm() + sanitize_name()
-#   lib/checks.sh           → vérification des dépendances (git, gh, osascript)
+#   lib/checks.sh           → vérification des dépendances (git, gh)
 #   steps/01..08-*.sh       → une étape métier par fichier
 #   templates/initRepot.sh  → script copié à la racine de chaque dossier projet
 #
 # Usage : ./initProject.sh
-# Dépendances : git, gh (GitHub CLI), osascript (macOS), bash 3.2+
+# Dépendances : git, gh (GitHub CLI), bash 3.2+
 # =============================================================================
 
 set -euo pipefail
@@ -60,7 +60,7 @@ export SCRIPT_DIR
 . "$SCRIPT_DIR/steps/08-recap.sh"
 
 # -----------------------------------------------------------------------------
-# Pré-flight : git / gh / osascript présents ?
+# Pré-flight : git / gh présents ?
 # -----------------------------------------------------------------------------
 check_dependencies
 
