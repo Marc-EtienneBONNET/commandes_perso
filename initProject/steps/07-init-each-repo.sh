@@ -126,7 +126,7 @@ _write_parent_claude_md() {
     printf 'concerné par la tâche. Les sous-projets initialisés ici :\n\n'
     local n
     for n in "${INITIALIZED[@]}"; do
-      printf '- `./%s/.claude/` (et `./%s/CLAUDE.md` si présent)\n' "$n" "$n"
+      printf -- '- `./%s/.claude/` (et `./%s/CLAUDE.md` si présent)\n' "$n" "$n"
     done
     printf '\n## Comment choisir le sous-projet\n\n'
     printf '1. Si la tâche cible un fichier précis, applique les règles du sous-projet\n'
