@@ -103,6 +103,22 @@ Le code de cette commande est dans `initProject/` et est découpé en :
 
 Voir les en-têtes des fichiers pour le détail (chaque step documente ce qu'il **consomme** et ce qu'il **produit**).
 
+### `-endWork`
+
+Pendant de `-startWork` : ferme les windows Cursor liées aux sous-repos du dossier courant.
+
+**Flux** :
+1. Scanne le dossier courant pour lister les sous-projets (mêmes exclusions que `-startWork` : `node_modules`, `dist`, `build`, `out`, `target`, `vendor`). Inclut aussi le cwd lui-même s'il porte un marker (`.git`, `package.json`, `docker-compose.yml`).
+2. Lit `~/Library/Application Support/Cursor/User/globalStorage/storage.json` (champ `backupWorkspaces.folders`) pour connaître les folders actuellement ouverts dans Cursor.
+3. Intersecte les deux listes → windows à fermer.
+4. Affiche le récap et demande confirmation.
+5. Pour chaque match, AppleScript via System Events : `AXRaise` la window dont le titre contient le basename du repo, puis envoie `Cmd+W`. Cursor garde la main sur le dialogue de sauvegarde des modifications non sauvegardées.
+6. Relit `storage.json` pour signaler les windows qui n'auraient pas été fermées (dialogue en attente, ou state Cursor pas encore flush).
+
+**Permissions requises** : macOS Accessibility pour le terminal hôte. Identique à `-startWork` — déjà accordé si tu utilises `-startWork`.
+
+Le code est dans `endWork/endWork.sh` (script monolithique, ~200 lignes, pas de découpage en `lib/` / `steps/` nécessaire).
+
 ---
 
 ## Ajouter une nouvelle commande

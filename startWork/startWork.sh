@@ -170,11 +170,21 @@ fi
 # -----------------------------------------------------------------------------
 # 5. `claude agents` dans un terminal séparé + fullscreen (→ nouveau Space)
 # -----------------------------------------------------------------------------
-# Ouvre une NOUVELLE window terminal positionnée sur $PWD, y lance
-# `claude agents`, puis bascule cette window en fullscreen (Space dédié).
+# Ouvre UNE seule window terminal positionnée sur $PWD avec `claude agents`,
+# puis la bascule en fullscreen (Space dédié).
 #
-# Détection : si on tourne dans iTerm (TERM_PROGRAM=iTerm.app), on cible iTerm
-# (process "iTerm2" pour System Events) ; sinon fallback sur Terminal.app.
+# Subtilité macOS : si l'app terminal cible n'est PAS déjà running, le simple
+# fait de lui parler en AppleScript la lance, ce qui ouvre AUSSI sa window
+# par défaut — puis `do script` / `create window` en ouvre une deuxième. On
+# se retrouve avec 2 windows.
+# Fix : détecter via pgrep si l'app tourne déjà.
+#   - tourne déjà    → nouvelle window dédiée
+#   - ne tourne pas  → on la lance, on attend, et on injecte la commande
+#                      DANS la window par défaut existante (pas une nouvelle)
+#
+# Détection du terminal cible : si on tourne dans iTerm
+# (TERM_PROGRAM=iTerm.app), on cible iTerm (process "iTerm2" côté System
+# Events). Sinon fallback sur Terminal.app (toujours présent sur macOS).
 #
 # Échappement : $PWD est entouré de guillemets dans le `cd` final → supporte
 # les espaces. Caveat : un `"` littéral dans $PWD casserait l'AppleScript
@@ -185,7 +195,9 @@ step "Ouverture de 'claude agents' dans un terminal séparé ($(pwd))"
 term_proc=""
 case "${TERM_PROGRAM:-}" in
   iTerm.app)
-    osascript <<APPLESCRIPT
+    term_proc="iTerm2"
+    if pgrep -x "iTerm2" >/dev/null 2>&1; then
+      osascript <<APPLESCRIPT
 tell application "iTerm"
   activate
   create window with default profile
@@ -194,16 +206,38 @@ tell application "iTerm"
   end tell
 end tell
 APPLESCRIPT
-    term_proc="iTerm2"
-    ;;
-  *)
-    osascript <<APPLESCRIPT
-tell application "Terminal"
+    else
+      open -a iTerm
+      sleep 1.0
+      osascript <<APPLESCRIPT
+tell application "iTerm"
   activate
-  do script "cd \"$PWD\" && claude agents"
+  tell current session of current window
+    write text "cd \"$PWD\" && claude agents"
+  end tell
 end tell
 APPLESCRIPT
+    fi
+    ;;
+  *)
     term_proc="Terminal"
+    if pgrep -x "Terminal" >/dev/null 2>&1; then
+      osascript <<APPLESCRIPT
+tell application "Terminal"
+  do script "cd \"$PWD\" && claude agents"
+  activate
+end tell
+APPLESCRIPT
+    else
+      open -a Terminal
+      sleep 0.8
+      osascript <<APPLESCRIPT
+tell application "Terminal"
+  activate
+  do script "cd \"$PWD\" && claude agents" in front window
+end tell
+APPLESCRIPT
+    fi
     ;;
 esac
 
