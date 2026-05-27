@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+#
+# pre-push hook installé par initProject.sh
+# =============================================================================
+# Au moment d'un `git push`, si l'URL d'origin pointe vers un repo GitHub qui
+# n'existe pas encore, créer ce repo en privé via gh, puis laisser le push
+# se poursuivre normalement.
+#
+# Arguments fournis par git (cf. `man githooks`) :
+#   $1 = nom du remote      (ex : "origin")
+#   $2 = URL du remote      (ex : "git@github.com:USER/REPO.git")
+#
+# Comportement :
+#   - skip silencieux si gh indisponible / non authentifié
+#   - skip silencieux si l'URL n'est pas github.com
+#   - skip si le repo existe déjà sur GitHub
+#   - sinon, création privée via `gh repo create OWNER/REPO --private`
+# =============================================================================
+
+set -e
+
+# 0. Skip si gh indisponible : laisser git tenter le push (qui échouera en
+#    natif, ce qui est attendu et clair pour l'utilisateur).
+if ! command -v gh >/dev/null 2>&1; then
+  exit 0
+fi
+if ! gh auth status >/dev/null 2>&1; then
+  echo "pre-push: gh non authentifié — skip création auto." >&2
+  exit 0
+fi
+
+remote_url="${2:-}"
+[ -n "$remote_url" ] || exit 0
+
+# 1. On ne gère QUE les remotes github.com (regex match `github.com` n'importe
+#    où dans l'URL — couvre les alias SSH `github.com-perso`, `github.com-pro`,
+#    etc.).
+if ! printf "%s" "$remote_url" | grep -q "github\.com"; then
+  exit 0
+fi
+
+# 2. Extraire OWNER/REPO depuis l'URL.
+# Cas couverts :
+#   git@github.com:owner/repo.git
+#   git@github.com-alias:owner/repo.git
+#   https://github.com/owner/repo.git
+#   https://github.com/owner/repo
+repo_path=$(
+  printf "%s" "$remote_url" \
+    | sed -E '
+        s|^.*github\.com[^:/]*[:/]||
+        s|\.git$||
+        s|/$||
+      '
+)
+
+# Validation simple : OWNER/REPO doit être au format "x/y" (un seul slash).
+if [ -z "$repo_path" ] || ! printf "%s" "$repo_path" | grep -qE '^[^/]+/[^/]+$'; then
+  exit 0
+fi
+
+# 3. Si le repo existe déjà sur GitHub, rien à faire — git pushera normalement.
+if gh repo view "$repo_path" >/dev/null 2>&1; then
+  exit 0
+fi
+
+# 4. Sinon, on crée le repo en privé. Au retour, git poursuit son push vers
+#    l'URL qu'on a déjà résolue avant le hook (donc bien vers ce nouveau repo).
+echo ">> Le repo $repo_path n'existe pas sur GitHub. Création privée..." >&2
+if ! gh repo create "$repo_path" --private; then
+  echo ">> Échec de la création. Le push est annulé." >&2
+  exit 1
+fi
+echo ">> Repo $repo_path créé. Le push continue." >&2
+exit 0
