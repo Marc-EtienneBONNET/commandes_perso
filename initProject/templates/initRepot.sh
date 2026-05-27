@@ -132,7 +132,9 @@ resolve_ssh_host() {
   local host out user
   while IFS= read -r host; do
     [ -z "$host" ] && continue
-    out=$(ssh -T -o BatchMode=yes -o ConnectTimeout=5 \
+    # `-n` ferme stdin de ssh — sans ça, il consomme le heredoc `<<<` qui
+    # alimente le `while read` et la boucle s'arrête après le 1er host.
+    out=$(ssh -n -T -o BatchMode=yes -o ConnectTimeout=5 \
               -o StrictHostKeyChecking=accept-new \
               "git@${host}" 2>&1 || true)
     user=$(printf '%s' "$out" | sed -n 's/^Hi \([^!]*\)!.*/\1/p')
@@ -175,16 +177,25 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 6. Garantit user.name / user.email (sinon git commit explose)
+# 6. Identité git LOCALE alignée sur le profil gh choisi.
+#
+#    Sans ça, `git commit` retomberait sur la config globale (souvent celle
+#    du compte par défaut / pro), et un repo perso finirait par contenir des
+#    commits signés à la mauvaise identité.
+#
+#    `gh api user` donne `.name`, `.email` (peut être null si privé), `.id`.
+#    Si l'email est privé → on retombe sur l'adresse noreply officielle :
+#    `<id>+<login>@users.noreply.github.com`.
 # -----------------------------------------------------------------------------
-if ! git config user.name >/dev/null 2>&1; then
-  n=$(git config --global user.name 2>/dev/null || echo "$GH_USER")
-  git config user.name "$n"
+GH_NAME=$(gh api user --jq '.name // .login')
+GH_EMAIL=$(gh api user --jq '.email')
+if [ -z "$GH_EMAIL" ] || [ "$GH_EMAIL" = "null" ]; then
+  GH_ID=$(gh api user --jq '.id')
+  GH_EMAIL="${GH_ID}+${GH_USER}@users.noreply.github.com"
 fi
-if ! git config user.email >/dev/null 2>&1; then
-  e=$(git config --global user.email 2>/dev/null || echo "${GH_USER}@users.noreply.github.com")
-  git config user.email "$e"
-fi
+git config user.name  "$GH_NAME"
+git config user.email "$GH_EMAIL"
+info "Identité git locale : ${GH_NAME} <${GH_EMAIL}>"
 
 # -----------------------------------------------------------------------------
 # 7. add + commit "init" — on EXCLUT ce script du commit initial.
