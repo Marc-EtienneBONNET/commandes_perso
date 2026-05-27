@@ -18,7 +18,9 @@
 #   - git commit -m "init"  (skip s'il n'y a rien à committer)
 #   - gh repo create OWNER/NAME --private (sans push)
 #   - git remote add origin git@<alias_ssh>:OWNER/NAME.git
-#   - git push -u origin main
+#   - git push -u origin main, avec retry exponentiel pour absorber le délai
+#     de propagation côté GitHub (l'API renvoie 200 avant que le serveur git
+#     n'expose le nouveau repo, d'où des "Repository not found" transitoires)
 #   - si tout s'est bien passé : suppression de ce script (mission accomplie)
 #
 # Usage : ./initRepot.sh         (depuis la racine du projet)
@@ -217,14 +219,47 @@ else
 fi
 info "Remote 'origin' → ${REMOTE_URL}"
 
+# -----------------------------------------------------------------------------
+# 9. Push initial avec retry — GitHub a souvent un délai entre la réponse 200
+#    de l'API `gh repo create` et la disponibilité du repo côté serveur git.
+#    Pendant cette fenêtre (1–10 s en général), le push échoue avec
+#    « Repository not found ». On retry avec un backoff doux plutôt que de
+#    laisser tomber sur la première tentative.
+# -----------------------------------------------------------------------------
+push_with_retry() {
+  local delays=(2 3 5 8 12)
+  local out
+
+  # Première tentative immédiate (souvent ça passe).
+  if out=$(git push -u origin main 2>&1); then
+    printf '%s\n' "$out"
+    return 0
+  fi
+
+  warn "Push refusé au premier essai (propagation GitHub en cours ?)."
+  local delay
+  for delay in "${delays[@]}"; do
+    info "Retry dans ${delay}s..."
+    sleep "$delay"
+    if out=$(git push -u origin main 2>&1); then
+      printf '%s\n' "$out"
+      return 0
+    fi
+  done
+
+  err "Push toujours refusé après plusieurs tentatives :"
+  printf '%s\n' "$out" >&2
+  return 1
+}
+
 info "Push initial sur main"
-git push -u origin main
+push_with_retry
 
 # -----------------------------------------------------------------------------
-# 9. Succès → autodestruction du script (mission accomplie).
-#    À ce point, `set -e` garantit qu'on n'est ici que si tout ce qui précède
-#    a réussi. Le script n'est pas dans l'index (cf. étape 7), il n'y a donc
-#    rien à `git rm` — un simple `rm` suffit.
+# 10. Succès → autodestruction du script (mission accomplie).
+#     À ce point, `set -e` garantit qu'on n'est ici que si tout ce qui précède
+#     a réussi. Le script n'est pas dans l'index (cf. étape 7), il n'y a donc
+#     rien à `git rm` — un simple `rm` suffit.
 # -----------------------------------------------------------------------------
 rm -- "$SELF_PATH"
 info "Script ${SELF_NAME} supprimé (mission accomplie)."
