@@ -6,9 +6,12 @@
 #
 # Approche : copie locale d'abord, création GitHub différée.
 #   - le script ne crée AUCUN repo sur GitHub.
-#   - chaque dossier local obtient un git init propre + un hook pre-push.
-#   - au premier `git push`, le hook crée le repo GitHub privé à la volée
-#     (avec le nom du dossier).
+#   - chaque dossier local reçoit son contenu de template + un script
+#     `initRepot.sh` à la racine.
+#   - quand l'utilisateur est prêt, il lance `./initRepot.sh` depuis le
+#     dossier : git init + add + commit "init" + gh repo create (privé) + push.
+#   - un `CLAUDE.md` est aussi écrit à la racine du dossier parent pour
+#     aiguiller Claude vers les `.claude/` de chaque sous-projet.
 #
 # Organisation :
 #   initProject.sh          → ce fichier (orchestrateur)
@@ -16,7 +19,7 @@
 #   lib/prompts.sh          → confirm() + sanitize_name()
 #   lib/checks.sh           → vérification des dépendances (git, gh, osascript)
 #   steps/01..08-*.sh       → une étape métier par fichier
-#   hooks/pre-push          → hook copié dans chaque repo cloné
+#   templates/initRepot.sh  → script copié à la racine de chaque dossier projet
 #
 # Usage : ./initProject.sh
 # Dépendances : git, gh (GitHub CLI), osascript (macOS), bash 3.2+
@@ -25,8 +28,16 @@
 set -euo pipefail
 
 # Localise le dossier dans lequel vit ce script (résout les symlinks).
-# Permet d'invoquer initProject.sh depuis n'importe où sans casser les `source`.
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+# Permet d'invoquer initProject.sh depuis n'importe où sans casser les `source`,
+# y compris via un symlink (ex. ~/.local/bin/-initProject → ~/.commandes_perso/...).
+# macOS n'a pas `readlink -f`, donc on déroule la chaîne de symlinks à la main.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
 export SCRIPT_DIR
 
 # -----------------------------------------------------------------------------
@@ -63,6 +74,6 @@ list_templates         # → TEMPLATES[]
 select_templates       # → SELECTED[]
 ask_project_name       # → SUFFIX
 compute_new_names      # → NEW_NAMES[]
-pick_destination       # → PARENT_DIR, GH_PROTO
+pick_destination       # → PARENT_DIR
 init_each_repo         # → INITIALIZED[], SKIPPED[], FAILED[]
 print_recap

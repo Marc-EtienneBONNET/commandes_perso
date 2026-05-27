@@ -8,13 +8,8 @@
 #       du dossier choisi, on crée un sous-dossier nommé <SUFFIX> qui
 #       contiendra les clones locaux.
 #
-# On profite aussi de cette étape pour récupérer le protocole git (ssh ou
-# https) configuré dans gh — c'est utilisé dans l'étape 7 pour construire
-# l'URL d'origin de chaque repo cloné.
-#
 # Consomme : SUFFIX
 # Produit  : PARENT_DIR  (chemin absolu du sous-dossier qui contiendra les clones)
-#            GH_PROTO    ("ssh" ou "https")
 # =============================================================================
 
 pick_destination() {
@@ -45,8 +40,4 @@ pick_destination() {
   fi
 
   info "Dossier parent : $PARENT_DIR"
-
-  # Récupère le protocole git de gh : ssh ou https. Sert à fabriquer l'URL
-  # d'origin (qu'on configurera dans chaque repo) à l'étape suivante.
-  GH_PROTO=$(gh config get git_protocol 2>/dev/null || echo https)
 }

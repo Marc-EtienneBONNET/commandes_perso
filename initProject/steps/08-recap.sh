@@ -6,10 +6,10 @@
 #
 # Affiche :
 #   - le dossier parent local créé
-#   - les repos initialisés (avec l'URL origin pré-configurée)
-#   - les repos skippés (dossier déjà existant)
-#   - les repos en échec (clone raté)
-#   - un rappel du comportement du hook pre-push
+#   - les sous-projets copiés (chacun avec un initRepot.sh prêt à l'emploi)
+#   - les sous-projets skippés (dossier déjà existant)
+#   - les sous-projets en échec (clone raté)
+#   - le mode d'emploi pour publier sur GitHub (./initRepot.sh)
 #
 # Consomme : PARENT_DIR, CURRENT_USER, INITIALIZED[], SKIPPED[], FAILED[]
 # Produit  : (rien — affichage uniquement)
@@ -23,10 +23,10 @@ print_recap() {
 
   # ----- Succès -----
   if [ "${#INITIALIZED[@]}" -gt 0 ]; then
-    echo "Repos initialisés (${#INITIALIZED[@]}) — pas encore sur GitHub :"
+    echo "Dossiers prêts (${#INITIALIZED[@]}) — pas encore sur GitHub :"
     local n
     for n in "${INITIALIZED[@]}"; do
-      echo "  - $PARENT_DIR/$n  (origin → ${CURRENT_USER}/$n)"
+      echo "  - $PARENT_DIR/$n  (futur repo → ${CURRENT_USER}/$n)"
     done
   fi
 
@@ -50,11 +50,16 @@ print_recap() {
     done
   fi
 
-  # ----- Rappel du hook pre-push -----
+  # ----- Mode d'emploi pour publier -----
   echo
-  info "Au premier 'git push -u origin main' depuis l'un de ces dossiers, le"
-  info "hook pre-push créera automatiquement le repo GitHub privé"
-  info "'${CURRENT_USER}/<nom_du_dossier>' (basé sur l'URL d'origin)."
+  info "Pour publier un sous-projet sur GitHub, va dedans et lance :"
+  echo "  cd <dossier>"
+  echo "  ./initRepot.sh"
+  info "→ git init + commit 'init' + création du repo privé + push."
+  echo
+  info "Un CLAUDE.md a aussi été déposé à la racine du dossier parent :"
+  info "il indique à Claude (ouvert depuis $PARENT_DIR) d'utiliser les"
+  info "\`.claude/\` de chaque sous-projet."
   echo
   info "Bon dev !"
 }

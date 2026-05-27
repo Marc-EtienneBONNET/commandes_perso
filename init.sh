@@ -189,10 +189,7 @@ for name in "${COMMANDS[@]}"; do
   echo "  $bin_name  →  $INSTALL_DIR/$name/${name}.sh"
 done
 echo
-info "Pour utiliser dans la session actuelle :"
-echo "  source ~/.zshrc"
-echo
-info "Ou ouvre simplement un nouveau terminal. Tu pourras ensuite taper :"
+info "Tu pourras ensuite taper :"
 for name in "${COMMANDS[@]}"; do
   case "$name" in
     -*) bin_name="$name" ;;
@@ -227,3 +224,14 @@ if confirm "Supprimer le repo local $SOURCE_DIR ? (le repo GitHub reste intact)"
 else
   info "Repo source conservé."
 fi
+
+# -----------------------------------------------------------------------------
+# 7. Relance zsh pour exposer immédiatement les commandes
+# -----------------------------------------------------------------------------
+# init.sh tourne dans un bash enfant ; `exec zsh -l` remplace ce bash par un
+# zsh login frais qui re-source .zshrc → PATH à jour, commandes utilisables
+# tout de suite, sans avoir à faire `source ~/.zshrc` ou ouvrir un terminal.
+# -----------------------------------------------------------------------------
+step "Relance de zsh pour activer les commandes"
+info "Tu reprends la main dans un shell zsh frais (tape les commandes ci-dessus)."
+exec zsh -l

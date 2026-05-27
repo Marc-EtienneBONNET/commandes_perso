@@ -3,35 +3,42 @@
 # steps/07-init-each-repo.sh
 # =============================================================================
 # Étape 7 — Cœur du workflow : pour chaque template sélectionné, copier son
-# contenu localement et préparer un repo prêt à pousser.
+# contenu localement et déposer un script `initRepot.sh` à la racine du
+# dossier projet. Écrit aussi un `CLAUDE.md` global à la racine du dossier
+# parent pour aiguiller Claude vers les `.claude/` de chaque sous-projet
+# quand on l'ouvre depuis ce dossier parent.
 #
 # Pour chaque template :
 #   1. Clone le template via gh (juste pour récupérer le contenu)
 #   2. Strip son historique git (`rm -rf .git`)
-#   3. Ajoute '.env*' au .gitignore AVANT le premier `git add` → le `.env`
-#      éventuel du template n'est PAS tracké dans le nouveau repo
-#   4. `git init -b main` + commit initial
-#   5. Configure `origin` vers ${CURRENT_USER}/<new_name>
-#      (le repo n'existe pas encore — le hook pre-push s'en occupera)
-#   6. Installe le hook pre-push (depuis hooks/pre-push) dans .git/hooks/
+#   3. Ajoute '.env*' au .gitignore (avant tout futur `git add`)
+#   4. Dépose `initRepot.sh` à la racine + chmod +x
 #
-# Consomme : SELECTED[], NEW_NAMES[], CURRENT_USER, PARENT_DIR, GH_PROTO,
-#            SCRIPT_DIR (pour localiser le fichier hook source)
+# Plus de `git init` / `git commit` / `git remote add` côté initProject :
+# l'utilisateur lance `./initRepot.sh` quand il est prêt à publier — ce script
+# fait git init + add + commit + gh repo create + push en une fois.
+#
+# Après la boucle : écrit `$PARENT_DIR/CLAUDE.md` listant les sous-projets,
+# pour que Claude (ouvert depuis le dossier parent) charge et applique les
+# configs `.claude/` de chacun.
+#
+# Consomme : SELECTED[], NEW_NAMES[], CURRENT_USER, PARENT_DIR, SUFFIX,
+#            SCRIPT_DIR (pour localiser le template initRepot.sh)
 # Produit  : INITIALIZED[] (succès), SKIPPED[] (dossier déjà présent),
 #            FAILED[] (échec de clone)
 # =============================================================================
 
 init_each_repo() {
-  step "Copie locale + git init + hook pre-push"
+  step "Copie locale + dépose de initRepot.sh"
 
   INITIALIZED=()
   SKIPPED=()
   FAILED=()
 
-  # ----- Vérifie que le hook source est bien présent (sinon abort) -----
-  local hook_source="${SCRIPT_DIR}/hooks/pre-push"
-  if [ ! -f "$hook_source" ]; then
-    err "Hook source introuvable : $hook_source"
+  # ----- Vérifie que le template initRepot.sh est bien présent -----
+  local initrepot_source="${SCRIPT_DIR}/templates/initRepot.sh"
+  if [ ! -f "$initrepot_source" ]; then
+    err "Template initRepot introuvable : $initrepot_source"
     exit 1
   fi
 
@@ -64,19 +71,19 @@ init_each_repo() {
     # 3. Ajoute '.env*' au .gitignore (idempotent)
     _add_env_to_gitignore "${target_dir}/.gitignore"
 
-    # 4-6. Tout le reste se fait dans le repo cloné, dans un sous-shell pour
-    # ne pas avoir à `cd ..` après.
-    (
-      cd "$target_dir"
-      _ensure_git_identity
-      _do_initial_commit "$template"
-      _configure_origin "$new_name"
-      _install_pre_push_hook "$hook_source"
-    )
+    # 4. Dépose initRepot.sh à la racine
+    _install_initrepot_script "$initrepot_source" "$target_dir"
 
     printf "${GREEN}OK${NC}\n"
     INITIALIZED+=("$new_name")
   done
+
+  # ----- Après la boucle : CLAUDE.md global au niveau parent -----
+  # Indique à Claude (quand il est ouvert depuis $PARENT_DIR) d'aller chercher
+  # les configs `.claude/` de chacun des sous-projets initialisés.
+  if [ "${#INITIALIZED[@]}" -gt 0 ]; then
+    _write_parent_claude_md
+  fi
 }
 
 # -----------------------------------------------------------------------------
@@ -97,50 +104,41 @@ _add_env_to_gitignore() {
   fi
 }
 
-# Garantit qu'un user.name / user.email est défini pour CE repo (local).
-# Évite le crash de `git commit` si le global est vide ou inexistant.
-# Stratégie :
-#   1. Si local déjà défini → on touche pas
-#   2. Sinon : on hérite du global s'il existe
-#   3. Sinon : fallback sur le login gh + email no-reply GitHub
-_ensure_git_identity() {
-  if ! git config user.name >/dev/null 2>&1; then
+# Copie initRepot.sh à la racine du dossier projet + chmod +x.
+_install_initrepot_script() {
+  local source="$1"
+  local target_dir="$2"
+  cp "$source" "${target_dir}/initRepot.sh"
+  chmod +x "${target_dir}/initRepot.sh"
+}
+
+# Écrit $PARENT_DIR/CLAUDE.md — fichier que Claude lit nativement quand il
+# tourne dans ce dossier. Lui dit d'utiliser les `.claude/` des sous-projets.
+_write_parent_claude_md() {
+  local claude_md="${PARENT_DIR}/CLAUDE.md"
+  {
+    printf '# Projet %s\n\n' "$SUFFIX"
+    printf 'Ce dossier regroupe plusieurs sous-projets, chacun avec son propre `.claude/`\n'
+    printf '(settings, agents, commandes, mémoires) et éventuellement son `CLAUDE.md`.\n\n'
+    printf '## Comportement attendu\n\n'
+    printf 'Quand tu travailles depuis ce dossier parent, charge et applique en priorité\n'
+    printf 'les configurations `.claude/` (et `CLAUDE.md` s'\''il existe) du sous-projet\n'
+    printf 'concerné par la tâche. Les sous-projets initialisés ici :\n\n'
     local n
-    n=$(git config --global user.name 2>/dev/null || echo "$CURRENT_USER")
-    git config user.name "$n"
-  fi
-  if ! git config user.email >/dev/null 2>&1; then
-    local e
-    e=$(git config --global user.email 2>/dev/null || echo "${CURRENT_USER}@users.noreply.github.com")
-    git config user.email "$e"
-  fi
-}
+    for n in "${INITIALIZED[@]}"; do
+      printf '- `./%s/.claude/` (et `./%s/CLAUDE.md` si présent)\n' "$n" "$n"
+    done
+    printf '\n## Comment choisir le sous-projet\n\n'
+    printf '1. Si la tâche cible un fichier précis, applique les règles du sous-projet\n'
+    printf '   contenant ce fichier.\n'
+    printf '2. Si la tâche est transverse (touche plusieurs sous-projets), applique\n'
+    printf '   l'\''union des règles de chacun.\n'
+    printf '3. En cas de conflit entre règles, mentionne-le et demande l'\''arbitrage.\n\n'
+    printf '## Conseil\n\n'
+    printf 'Pour bosser focus sur un seul sous-projet, ouvre Claude directement depuis\n'
+    printf 'son dossier — son `.claude/` et son `CLAUDE.md` seront chargés nativement,\n'
+    printf 'sans passer par cette indirection.\n'
+  } > "$claude_md"
 
-# `git init -b main` + premier commit (tout sauf gitignored).
-_do_initial_commit() {
-  local template="$1"
-  git init -q -b main
-  git add -A
-  git commit -q -m "Initial commit from ${template}"
-}
-
-# Configure le remote `origin` vers l'URL FUTURE du repo GitHub.
-# Le repo n'existe pas encore — le hook pre-push le créera au premier push.
-_configure_origin() {
-  local new_name="$1"
-  local origin_url
-  if [ "$GH_PROTO" = "ssh" ]; then
-    origin_url="git@github.com:${CURRENT_USER}/${new_name}.git"
-  else
-    origin_url="https://github.com/${CURRENT_USER}/${new_name}.git"
-  fi
-  git remote add origin "$origin_url"
-}
-
-# Copie le hook pre-push (depuis hooks/pre-push) dans .git/hooks/ + chmod +x.
-_install_pre_push_hook() {
-  local hook_source="$1"
-  local hook_dest=".git/hooks/pre-push"
-  cp "$hook_source" "$hook_dest"
-  chmod +x "$hook_dest"
+  info "CLAUDE.md écrit : $claude_md"
 }
