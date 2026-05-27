@@ -10,9 +10,8 @@
 #     `initRepot.sh` à la racine.
 #   - quand l'utilisateur est prêt, il lance `./initRepot.sh` depuis le
 #     dossier : git init + add + commit "init" + gh repo create (privé) + push.
-#   - un `CLAUDE.md` + un dossier `.claude/rules/` sont aussi déposés à la
-#     racine du dossier parent pour aiguiller Claude vers les `.claude/`
-#     de chaque sous-projet.
+#   - un dossier `.claude/rules/` est aussi déposé à la racine du dossier
+#     parent pour aiguiller Claude vers les `.claude/` de chaque sous-projet.
 #
 # Organisation :
 #   initProject.sh          → ce fichier (orchestrateur)
