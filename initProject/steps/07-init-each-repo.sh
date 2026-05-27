@@ -4,9 +4,9 @@
 # =============================================================================
 # Étape 7 — Cœur du workflow : pour chaque template sélectionné, copier son
 # contenu localement et déposer un script `initRepot.sh` à la racine du
-# dossier projet. Écrit aussi un `CLAUDE.md` global à la racine du dossier
-# parent pour aiguiller Claude vers les `.claude/` de chaque sous-projet
-# quand on l'ouvre depuis ce dossier parent.
+# dossier projet. Configure aussi un `CLAUDE.md` + un dossier `.claude/`
+# à la racine du dossier parent pour aiguiller Claude vers les `.claude/`
+# de chaque sous-projet quand on l'ouvre depuis ce dossier parent.
 #
 # Pour chaque template :
 #   1. Clone le template via gh (juste pour récupérer le contenu)
@@ -18,9 +18,11 @@
 # l'utilisateur lance `./initRepot.sh` quand il est prêt à publier — ce script
 # fait git init + add + commit + gh repo create + push en une fois.
 #
-# Après la boucle : écrit `$PARENT_DIR/CLAUDE.md` listant les sous-projets,
-# pour que Claude (ouvert depuis le dossier parent) charge et applique les
-# configs `.claude/` de chacun.
+# Après la boucle :
+#   - écrit `$PARENT_DIR/CLAUDE.md` listant les sous-projets ;
+#   - crée `$PARENT_DIR/.claude/rules/00-subprojects.md` avec le détail
+#     des consignes (chargé mécaniquement par Claude quand on descend dans
+#     un sous-projet, puisque le harness charge les `.claude/` parents).
 #
 # Consomme : SELECTED[], NEW_NAMES[], CURRENT_USER, PARENT_DIR, SUFFIX,
 #            SCRIPT_DIR (pour localiser le template initRepot.sh)
@@ -78,11 +80,11 @@ init_each_repo() {
     INITIALIZED+=("$new_name")
   done
 
-  # ----- Après la boucle : CLAUDE.md global au niveau parent -----
+  # ----- Après la boucle : CLAUDE.md + .claude/ au niveau parent -----
   # Indique à Claude (quand il est ouvert depuis $PARENT_DIR) d'aller chercher
   # les configs `.claude/` de chacun des sous-projets initialisés.
   if [ "${#INITIALIZED[@]}" -gt 0 ]; then
-    _write_parent_claude_md
+    _setup_parent_claude
   fi
 }
 
@@ -112,23 +114,71 @@ _install_initrepot_script() {
   chmod +x "${target_dir}/initRepot.sh"
 }
 
+# Configure le dossier parent côté Claude Code :
+#   - $PARENT_DIR/CLAUDE.md           → pointeur vers les règles + liste des sous-projets
+#   - $PARENT_DIR/.claude/rules/00-subprojects.md → détail des consignes
+#
+# Pourquoi ces deux fichiers :
+#   - CLAUDE.md est chargé nativement par Claude quand il tourne dans $PARENT_DIR.
+#   - $PARENT_DIR/.claude/ est mécaniquement chargé par le harness Claude Code
+#     quand on descend dans n'importe quel sous-dossier (settings.json, agents/,
+#     commands/ partagés seront ainsi disponibles dans tous les sous-projets).
+#     Le fichier rules/00-subprojects.md sert de point d'ancrage et de doc :
+#     les futures règles partagées entre sous-projets iront ici.
+_setup_parent_claude() {
+  _write_parent_claude_md
+  _write_parent_claude_dir
+}
+
 # Écrit $PARENT_DIR/CLAUDE.md — fichier que Claude lit nativement quand il
-# tourne dans ce dossier. Lui dit d'utiliser les `.claude/` des sous-projets.
+# tourne dans ce dossier. Pointe vers `.claude/rules/` et liste les sous-projets.
 _write_parent_claude_md() {
   local claude_md="${PARENT_DIR}/CLAUDE.md"
   {
     printf '# Projet %s\n\n' "$SUFFIX"
     printf 'Ce dossier regroupe plusieurs sous-projets, chacun avec son propre `.claude/`\n'
     printf '(settings, agents, commandes, mémoires) et éventuellement son `CLAUDE.md`.\n\n'
-    printf '## Comportement attendu\n\n'
-    printf 'Quand tu travailles depuis ce dossier parent, charge et applique en priorité\n'
-    printf 'les configurations `.claude/` (et `CLAUDE.md` s'\''il existe) du sous-projet\n'
-    printf 'concerné par la tâche. Les sous-projets initialisés ici :\n\n'
+    printf 'Lis et applique **récursivement** les règles dans `.claude/rules/`\n'
+    printf '(y compris sous-dossiers). Voir notamment `.claude/rules/00-subprojects.md`\n'
+    printf 'pour la stratégie de dispatch entre sous-projets.\n\n'
+    printf '## Sous-projets initialisés\n\n'
     local n
     for n in "${INITIALIZED[@]}"; do
       printf -- '- `./%s/.claude/` (et `./%s/CLAUDE.md` si présent)\n' "$n" "$n"
     done
-    printf '\n## Comment choisir le sous-projet\n\n'
+    printf '\n## Conseil\n\n'
+    printf 'Pour bosser focus sur un seul sous-projet, ouvre Claude directement depuis\n'
+    printf 'son dossier — son `.claude/` et son `CLAUDE.md` seront chargés nativement,\n'
+    printf 'sans passer par cette indirection.\n'
+  } > "$claude_md"
+
+  info "CLAUDE.md écrit : $claude_md"
+}
+
+# Crée $PARENT_DIR/.claude/ (avec rules/) et y dépose la consigne de dispatch
+# vers les `.claude/` des sous-projets. Le dossier est mécaniquement chargé
+# par Claude Code quand on travaille depuis n'importe quel sous-dossier.
+_write_parent_claude_dir() {
+  local claude_dir="${PARENT_DIR}/.claude"
+  local rules_dir="${claude_dir}/rules"
+  local rules_file="${rules_dir}/00-subprojects.md"
+
+  mkdir -p "$rules_dir"
+
+  {
+    printf '# Sous-projets\n\n'
+    printf 'Ce dossier parent regroupe plusieurs sous-projets, chacun avec son propre\n'
+    printf '`.claude/` (settings, agents, commandes, mémoires) et éventuellement son\n'
+    printf '`CLAUDE.md`. Les sous-projets initialisés ici :\n\n'
+    local n
+    for n in "${INITIALIZED[@]}"; do
+      printf -- '- `./%s/.claude/` (et `./%s/CLAUDE.md` si présent)\n' "$n" "$n"
+    done
+    printf '\n## Comportement attendu\n\n'
+    printf 'Quand tu travailles depuis ce dossier parent, charge et applique en priorité\n'
+    printf 'les configurations `.claude/` (et `CLAUDE.md` s'\''il existe) du sous-projet\n'
+    printf 'concerné par la tâche.\n\n'
+    printf '## Comment choisir le sous-projet\n\n'
     printf '1. Si la tâche cible un fichier précis, applique les règles du sous-projet\n'
     printf '   contenant ce fichier.\n'
     printf '2. Si la tâche est transverse (touche plusieurs sous-projets), applique\n'
@@ -138,7 +188,7 @@ _write_parent_claude_md() {
     printf 'Pour bosser focus sur un seul sous-projet, ouvre Claude directement depuis\n'
     printf 'son dossier — son `.claude/` et son `CLAUDE.md` seront chargés nativement,\n'
     printf 'sans passer par cette indirection.\n'
-  } > "$claude_md"
+  } > "$rules_file"
 
-  info "CLAUDE.md écrit : $claude_md"
+  info ".claude/ créé    : $claude_dir"
 }
